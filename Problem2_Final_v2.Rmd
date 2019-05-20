@@ -1,0 +1,618 @@
+---
+title: "Homework2 Logistic Regresion"
+author: | 
+  | Gustavo Mart?nez, Renato Ram?rez, Erik Larsen and Julio Borja
+  | Tecnol?gico de Monterrey
+output: 
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: false
+  toc_depth: 3
+  theme: united
+  highlight: tango
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, comment=NA, fig.width=8, fig.height=5, warning=F, width = 100)
+pkg<-c("aod","ggplot2", "car", "ResourceSelection", "DescTools", "MASS", "rcompanion","ROCR", "blorr", "boot","tidyverse","modelr","broom")
+lapply(pkg,require,character.only=TRUE)
+#options(contrasts=c('contr.sum','contr.poly'))
+```
+
+
+
+#**The stages of the analysis for the problem are the following:**
+1. Business Scenario
+2. Data exploration
+3. Construction of the model by automatic method
+4. The proposed complete model
+5. Residuals, DFBetas and Correlation
+6. The model for the house segment
+7. The model for the car segment
+8. Final conclusions
+
+#**1.Business Scenario**
+```{r}
+
+```
+**Business scenario:** Working as a business analyst for a national bank, you are asked to build a model using the available Logistic.sav data (**Available in 2. Datasets for Homework.RData**) that predicts whether your customer defaulted on their loan (i.e., **Default** variable, 0 = Loan in good standing, 1 = Defaulted on loan). Notice there are two types of loans, home and car, so you should consider this variable (i.e., **Loan_Type**) when building your model.
+
+Using the **Logistic.sav** data, use all the available data to build a model that predicts/classifies whether a customer defaulted on their loan (i.e., **Default** variable, 0 = Loan in good standing, 1 = Defaulted on loan). Again, test whether the model predicts/classifies equally well for home and car loans and please provide justification for whether or not the model predicts/classifies equally well across loan types. In your report, briefly describe your modeling building approach and explain using statistics and/or graphs how well the model predicts/classifies whether they defaulted on their loan.  **
+
+#**2.Data Exploration**
+```{r}
+
+```
+
+
+
+```{r, echo = FALSE, eval = T,results='hold'}
+load("2. Datasets for Homework.RData")
+str(Logistic)
+summary(Logistic)
+View(Logistic)
+
+```
+
+
+
+
+
+
+
+#*3.Build a Model (Step Model, AIC)*
+```{r, echo = FALSE, eval = T}
+
+### Define full and null models and do step procedure. Fill in model.full below.
+
+cat("stepAIC(object, scope, scale = 0,","direction = c(both, backward, forward),\ntrace = 1, keep = NULL, steps =1000, use.start = FALSE,k = 2, ...)")
+Data.omit <- na.omit(Logistic)
+model.null = glm(factor(Default)  ~ 1, 
+                 data=Data.omit,
+                 family = binomial(link="logit"))
+
+model.full = glm(factor(Default)  ~. ,
+                 data=Data.omit,
+                 family = binomial(link="logit")
+                 ) 
+
+step.models<-step(model.null,
+     scope = list(upper=model.full),
+             direction="both",
+            test="Chisq", trace = T)
+
+summary(step.models)
+```
+
+##ROC Curves
+
+```{r, echo = FALSE, eval = T,results='hold'}
+y <- "Default"
+order.models<-step.models$anova$Step
+model.adj <- substr(order.models,1,1)[2:length(order.models)]
+var.adj <- substr(order.models,3,nchar(as.character(order.models)))[2:length(order.models)]
+
+
+model <- list()
+
+model[[1]] <- as.formula(paste(y,"~",paste(var.adj[1],collapse = "+")))
+
+
+for(i in 2:length(model.adj))
+ if(regexpr('+', model.adj[i])==1){
+   model[[i]]<-update.formula(model[[i-1]], paste("~.",model.adj[[i]],var.adj[[i]]),sep="")
+ } else model[[i]]<-update.formula(model[[i-1]], paste(".~.",model.adj[[i]],var.adj[[i]]),sep="")
+model
+
+#ROC Curves
+mod.tmp<-lapply(model,function(x) glm(x,data=Logistic,
+                                      family = binomial(link="logit")))
+pred <- lapply(mod.tmp,function(x) prediction(predict(x, Logistic, type = "response"),
+                   Logistic[,y])) #Predicted Probability and True Classification
+auc <- lapply(pred, function(x) 
+  round(as.numeric(performance(x, measure = "auc")@y.values),3))
+
+perf <- lapply(pred, function(x) performance(x, "tpr","fpr"))
+plot(1, type="n", xlab="", ylab="", xlim=c(0, 1), ylim=c(0, 1), main = "ROC Curve")
+counter = 0
+lapply(perf, function(x){ 
+  counter <<- counter + 1
+plot(x,col=counter, add = T) 
+}
+)
+
+legend("bottomright", paste("Model",1:counter,paste(" AUC:", unlist(auc), sep = " "), sep =""),
+       ncol =1, col = 1:counter,lty=1)
+
+```
+
+ROC Curve (a graphical plot of sensivity and false positive fraction) , shows Model 6 is the best with the biggest AUC (Area Under Curve) between 0.8 and 0.9 is "good.
+
+We select the critical variables of stage 1 (automatic method). A logistic regression model is proposed to predict the default of home loans. The model includes the following variables: Credit_score + Income + Gender + Degree.
+
+```{r}
+
+str(Logistic)
+summary(Logistic)
+View(Logistic)
+
+```
+
+
+
+#**Build a complete Model **
+```{r, echo = FALSE, eval = T}
+
+Logistic$Default <- factor(Logistic$Default)
+Data.omit = na.omit(Logistic)
+summary(Data.omit)
+```
+
+#**4.Proposed Model **
+
+We selected model six because AUC stayed the same after this model.
+```{r}
+final.model <- glm(Default ~ Loan_Type  + Credit_score + Income + Gender + Degree + Income*Gender  + Signers, data = Logistic, family = "binomial")
+summary(final.model)
+anova(final.model)
+
+```
+
+
+```{r}
+pred <- prediction(predict(final.model, Logistic, type = "response"),
+        Logistic$Default)
+
+```
+
+The log odds is increased by the variables credit score, income, degree graduate, signers and  the interaction  income:gender male; so probability of default will increase when these variables increase. 
+The log odds is decreased by the variables loan type Home , gender male and degree High School; so customers with these characteristics have a lower probability of default.
+
+
+
+#**Odds Ratios**
+
+```{r, echo = FALSE, eval = TRUE}
+OR<-exp(final.model$coefficients)
+round(OR,3)
+```
+
+
+#**AIC and BIC**
+```{r}
+
+summary(final.model)
+AIC<-AIC(final.model)
+BIC<-BIC(final.model)
+cbind(AIC,BIC)
+```
+
+Model fit statistics: smaller values in AIC and BIC indicate a better model.
+
+#**ROC AUC Sensitivity and Specificity**
+```{r, echo = FALSE, eval = T,results='hold'}
+
+pred <- prediction(predict(final.model, Logistic, type = "response"),
+        Logistic$Default) #Predicted Probability and True Classification
+
+auc <- round(as.numeric(performance(pred, measure = "auc")@y.values),3)
+perf <- performance(pred, "tpr","fpr")
+false.rates <-performance(pred, "fpr","fnr")
+accuracy <-performance(pred, "acc","err")
+
+plot(perf,colorize = T, main = "ROC Curve")
+text(0.5,0.5, paste("AUC:", auc))
+
+
+plot(unlist(performance(pred, "sens")@x.values), unlist(performance(pred, "sens")@y.values), 
+     type="l", lwd=2, 
+     ylab="Sensitivity", xlab="Cutoff", main = paste("Maximized Cutoff\n","AUC: ",auc))
+par(new=TRUE)
+plot(unlist(performance(pred, "spec")@x.values), unlist(performance(pred, "spec")@y.values), 
+     type="l", lwd=2, col='red', ylab="", xlab="")
+axis(4, at=seq(0,1,0.2))
+mtext("Specificity",side=4, padj=-2, col='red')
+
+min.diff <-which.min(abs(unlist(performance(pred, "sens")@y.values) - unlist(performance(pred, "spec")@y.values)))
+min.x<-unlist(performance(pred, "sens")@x.values)[min.diff]
+min.y<-unlist(performance(pred, "spec")@y.values)[min.diff]
+optimal <-min.x
+
+abline(h = min.y, lty = 3)
+abline(v = min.x, lty = 3)
+text(min.x,0,paste("optimal threshold=",round(optimal,5)), pos = 4)
+```
+
+The ROC curve is a graphical plot of sensitivity (proportion of actual positives that are correctly identified) and false positive fraction; AUC=0.8 shows a "good" level of classification in our model. 
+
+#**Classification Table**
+```{r, echo = FALSE, eval = T,results='hold'}
+table.range <-10
+prob.level <-seq(min.diff - table.range, min.diff + table.range)
+perc.thresh <-round(unlist(performance(pred, "sens")@x.values)[prob.level],5)
+perc.sens<-round(unlist(performance(pred, "sens")@y.values)[prob.level],3)
+perc.spec<-round(unlist(performance(pred, "spec")@y.values)[prob.level],3)
+perc.fpr <- round(unlist(false.rates@y.values)[prob.level],3)
+perc.fnr <- round(unlist(false.rates@x.values)[prob.level],3)
+perc.correct <-round(unlist(accuracy@y.values)[prob.level],3)
+
+CTable<-data.frame(Correct = perc.correct, sensitivity = perc.sens, specificity = perc.spec, False.Pos = perc.fpr,False.Neg = perc.fnr, Threshold = perc.thresh, row.names = NULL)
+
+print(CTable, row.names = F)
+```
+The logistic model found contains the following critical variables for home loans.
+Credit_score + Income + GenderMale + DegreeGradaute + DegreeHS
+
+Bearing in mind that a criterion for AUC greater than 0.8 is considered good. The ROC curve allows us to identify an AUC of 0.843. Which means that 84.3% of the predictions generated by the model will be correct.
+
+#**5.Residual, DFBetas And Correlation**
+
+
+####Hosmer-Lemshow gof test (example)
+
+```{r, eval = TRUE}
+hl <- hoslem.test(final.model$y, fitted(final.model), g=10)
+hl
+round(cbind(hl$observed,hl$expected),0)
+```
+
+Hosmer test is used to verify the assumption of linearity in the logit; a non-significant result as ours, shows that the model predictors and the data are in accord.
+
+
+###Global Tests
+```{r}
+
+LR<-Anova(final.model, test = "LR")
+score<-anova(final.model, test = "Rao")
+Wald<-Anova(final.model, test = "Wald")
+Wald3<-Anova(final.model,type = 3, test = "Wald")
+
+
+data.frame(LR = LR[,1], Score = score$Rao[2], Wald = Wald$Chisq)
+data.frame(p.LR = LR$`Pr(>Chisq)`, p.Score = score$`Pr(>Chi)`[2], p.Wald = Wald$`Pr(>Chisq)`)
+
+Wald3 #Wald Type III
+```
+
+All 3 p-values (p.LR, p.Score and p.Wald) are significant at the 0.05 level, so at least one of the coefficients is significantly different from zero.
+
+
+###Pseudo R-Squares
+```{r}
+p.r2<-PseudoR2(final.model, which =  c("McFadden", "Nagel", "CoxSnell"))
+round(p.r2, 3)
+```
+
+McFadden means that the amount of dependent variable variance accounted for by the model is 16.5%; according to Nagelkerke is 20.1% and according to CoxSnell is 7.9%.
+
+###Residuals
+```{r}
+#Residuals
+resid.d<-residuals(final.model, type = "deviance")
+resid.p<-residuals(final.model, type = "pearson")
+std.res.d<-residuals(final.model, type = "deviance")/sqrt(1 - hatvalues(final.model))
+std.res.p <-residuals(final.model, type = "pearson")/sqrt(1 - hatvalues(final.model))
+
+#Influce Dianostics
+diag.stats<-glm.diag(final.model)
+leverage<-diag.stats$h
+df.beta<-dfbetas(final.model)
+
+#CI Displacement CBAR Plot
+blr_plot_diag_cbar(final.model, point_color = "blue",
+                   title = "CI Displacement CBAR Plot", xaxis_title = "id",
+                   yaxis_title = "CI Displacement CBAR")
+
+#Histograms
+hist(resid.d, density=20, prob=TRUE, 
+     xlab="x-variable", 
+     main="Deviance Residuals")
+
+curve(dnorm(x, mean=mean(resid.d), sd=sd(resid.d)), 
+      col="darkblue", lwd=2, add=TRUE, yaxt="n")
+summary(resid.d)
+
+hist(resid.p, density=20, prob=TRUE, 
+     xlab="x-variable", 
+     main="Pearson Residuals")
+
+curve(dnorm(x, mean=mean(resid.p), sd=sd(resid.p)), 
+      col="darkblue", lwd=2, add=TRUE, yaxt="n")
+summary(resid.p)
+```
+
+We observe residuals have a Normal distribution.
+
+###DF Betas
+```{r}
+#DF Betas
+par(mfrow=c(2,2))
+plot(df.beta[,1], xlab = colnames(df.beta)[1], ylab = "dfbetas")
+plot(df.beta[,2], xlab = colnames(df.beta)[2], ylab = "dfbetas")
+plot(df.beta[,3], xlab = colnames(df.beta)[3], ylab = "dfbetas")
+plot(df.beta[,4], xlab = colnames(df.beta)[4], ylab = "dfbetas")
+par(mfrow=c(1,1))
+```
+
+These DF betas indicate whether any cases are causing instability in the parameter estimates. Based on these results, no single case is causing significant concern.
+
+
+###Correlation
+```{r}
+panel.cor <- function(x, y, digits = 2, prefix = "", cex.cor, ...)
+{
+    usr <- par("usr"); on.exit(par(usr))
+    par(usr = c(0, 1, 0, 1))
+    r <- abs(cor(x, y))
+    txt <- format(c(r, 0.123456789), digits = digits)[1]
+    txt <- paste0(prefix, txt)
+    if(missing(cex.cor)) cex.cor <- 0.8/strwidth(txt)
+    text(0.5, 0.5, txt, cex = cex.cor * r)
+}
+pairs(model.matrix(final.model),upper.panel=panel.cor)
+#VIF
+vif(final.model)
+```
+
+
+
+
+
+
+
+We select the critical variables of stage 1 (automatic method). The information has been segmented by loan type. A logistic regression model is proposed to predict the default of home loans. The model includes the following variables: Credit_score + Income + Gender + Degree.
+
+```{r}
+
+load("Logistic_Home.RData")
+str(Logistic)
+summary(Logistic)
+View(Logistic)
+
+```
+
+
+
+#**6.Build a Model (Partition for HOME)**
+```{r, echo = FALSE, eval = T}
+
+Logistic$Default <- factor(Logistic$Default)
+Data.omit = na.omit(Logistic)
+summary(Data.omit)
+```
+
+#**Model for home loans**
+
+I selected model six because AUC stayed the same after this model.
+####Model
+```{r}
+final.model <- glm(Default ~ Credit_score + Income + Gender + Degree, data = Logistic, family = "binomial")
+summary(final.model)
+
+```
+
+
+```{r}
+pred <- prediction(predict(final.model, Logistic, type = "response"),
+        Logistic$Default)
+
+```
+
+
+
+
+#**Odds Ratios**
+
+```{r, echo = FALSE, eval = TRUE}
+OR<-exp(final.model$coefficients)
+round(OR,3)
+```
+
+
+#**AIC and BIC**
+```{r}
+
+summary(final.model)
+AIC<-AIC(final.model)
+BIC<-BIC(final.model)
+cbind(AIC,BIC)
+```
+
+#**ROC AUC Sensitivity and Specificity**
+```{r, echo = FALSE, eval = T,results='hold'}
+
+pred <- prediction(predict(final.model, Logistic, type = "response"),
+        Logistic$Default) #Predicted Probability and True Classification
+
+auc <- round(as.numeric(performance(pred, measure = "auc")@y.values),3)
+perf <- performance(pred, "tpr","fpr")
+false.rates <-performance(pred, "fpr","fnr")
+accuracy <-performance(pred, "acc","err")
+
+plot(perf,colorize = T, main = "ROC Curve")
+text(0.5,0.5, paste("AUC:", auc))
+
+
+plot(unlist(performance(pred, "sens")@x.values), unlist(performance(pred, "sens")@y.values), 
+     type="l", lwd=2, 
+     ylab="Sensitivity", xlab="Cutoff", main = paste("Maximized Cutoff\n","AUC: ",auc))
+par(new=TRUE)
+plot(unlist(performance(pred, "spec")@x.values), unlist(performance(pred, "spec")@y.values), 
+     type="l", lwd=2, col='red', ylab="", xlab="")
+axis(4, at=seq(0,1,0.2))
+mtext("Specificity",side=4, padj=-2, col='red')
+
+min.diff <-which.min(abs(unlist(performance(pred, "sens")@y.values) - unlist(performance(pred, "spec")@y.values)))
+min.x<-unlist(performance(pred, "sens")@x.values)[min.diff]
+min.y<-unlist(performance(pred, "spec")@y.values)[min.diff]
+optimal <-min.x
+
+abline(h = min.y, lty = 3)
+abline(v = min.x, lty = 3)
+text(min.x,0,paste("optimal threshold=",round(optimal,5)), pos = 4)
+```
+
+#**Classification Table**
+```{r, echo = FALSE, eval = T,results='hold'}
+table.range <-10
+prob.level <-seq(min.diff - table.range, min.diff + table.range)
+perc.thresh <-round(unlist(performance(pred, "sens")@x.values)[prob.level],5)
+perc.sens<-round(unlist(performance(pred, "sens")@y.values)[prob.level],3)
+perc.spec<-round(unlist(performance(pred, "spec")@y.values)[prob.level],3)
+perc.fpr <- round(unlist(false.rates@y.values)[prob.level],3)
+perc.fnr <- round(unlist(false.rates@x.values)[prob.level],3)
+perc.correct <-round(unlist(accuracy@y.values)[prob.level],3)
+
+CTable<-data.frame(Correct = perc.correct, sensitivity = perc.sens, specificity = perc.spec, False.Pos = perc.fpr,False.Neg = perc.fnr, Threshold = perc.thresh, row.names = NULL)
+
+print(CTable, row.names = F)
+```
+The logistic model found contains the following critical variables for home loans.
+Credit_score + Income + GenderMale + DegreeGradaute + DegreeHS
+
+Bearing in mind that a criterion for AUC greater than 0.8 is considered good. The ROC curve allows us to identify an AUC of 0.843. Which means that 84.3% of the predictions generated by the model will be correct.
+
+
+
+
+```{r}
+
+load("Logistic_Car.RData")
+str(Logistic)
+summary(Logistic)
+View(Logistic)
+
+```
+
+
+
+#**7.Build a Model (Partition for CAR)**
+```{r, echo = FALSE, eval = T}
+
+Logistic$Default <- factor(Logistic$Default)
+Data.omit = na.omit(Logistic)
+summary(Data.omit)
+```
+
+#**Model for car loans**
+
+I selected model six because AUC stayed the same after this model.
+####Model
+```{r}
+final.model <- glm(Default ~ Credit_score + Income  + Degree + Loan_lenght + Signers , data = Logistic, family = "binomial")
+summary(final.model)
+
+```
+
+
+```{r}
+pred <- prediction(predict(final.model, Logistic, type = "response"),
+        Logistic$Default)
+
+```
+
+
+```{r}
+new.df <- tibble(Gender = c("Male","Female"), Credit_score = 700, Income = 100000, Degree = "HS", Loan_lenght = 2, Signers = 2)
+predict(final.model, new.df, type = "response")
+```
+
+
+
+#**Odds Ratios**
+
+```{r, echo = FALSE, eval = TRUE}
+OR<-exp(final.model$coefficients)
+round(OR,3)
+```
+
+
+#**AIC and BIC**
+```{r}
+
+summary(final.model)
+AIC<-AIC(final.model)
+BIC<-BIC(final.model)
+cbind(AIC,BIC)
+```
+
+#**ROC AUC Sensitivity and Specificity**
+```{r, echo = FALSE, eval = T,results='hold'}
+
+pred <- prediction(predict(final.model, Logistic, type = "response"),
+        Logistic$Default) #Predicted Probability and True Classification
+
+auc <- round(as.numeric(performance(pred, measure = "auc")@y.values),3)
+perf <- performance(pred, "tpr","fpr")
+false.rates <-performance(pred, "fpr","fnr")
+accuracy <-performance(pred, "acc","err")
+
+plot(perf,colorize = T, main = "ROC Curve")
+text(0.5,0.5, paste("AUC:", auc))
+
+
+plot(unlist(performance(pred, "sens")@x.values), unlist(performance(pred, "sens")@y.values), 
+     type="l", lwd=2, 
+     ylab="Sensitivity", xlab="Cutoff", main = paste("Maximized Cutoff\n","AUC: ",auc))
+par(new=TRUE)
+plot(unlist(performance(pred, "spec")@x.values), unlist(performance(pred, "spec")@y.values), 
+     type="l", lwd=2, col='red', ylab="", xlab="")
+axis(4, at=seq(0,1,0.2))
+mtext("Specificity",side=4, padj=-2, col='red')
+
+min.diff <-which.min(abs(unlist(performance(pred, "sens")@y.values) - unlist(performance(pred, "spec")@y.values)))
+min.x<-unlist(performance(pred, "sens")@x.values)[min.diff]
+min.y<-unlist(performance(pred, "spec")@y.values)[min.diff]
+optimal <-min.x
+
+abline(h = min.y, lty = 3)
+abline(v = min.x, lty = 3)
+text(min.x,0,paste("optimal threshold=",round(optimal,5)), pos = 4)
+```
+
+#**Classification Table**
+```{r, echo = FALSE, eval = T,results='hold'}
+table.range <-10
+prob.level <-seq(min.diff - table.range, min.diff + table.range)
+perc.thresh <-round(unlist(performance(pred, "sens")@x.values)[prob.level],5)
+perc.sens<-round(unlist(performance(pred, "sens")@y.values)[prob.level],3)
+perc.spec<-round(unlist(performance(pred, "spec")@y.values)[prob.level],3)
+perc.fpr <- round(unlist(false.rates@y.values)[prob.level],3)
+perc.fnr <- round(unlist(false.rates@x.values)[prob.level],3)
+perc.correct <-round(unlist(accuracy@y.values)[prob.level],3)
+
+CTable<-data.frame(Correct = perc.correct, sensitivity = perc.sens, specificity = perc.spec, False.Pos = perc.fpr,False.Neg = perc.fnr, Threshold = perc.thresh, row.names = NULL)
+
+print(CTable, row.names = F)
+```
+
+
+
+
+
+#**8.Final conclusions**
+
+```{r}
+
+```
+
+
+
+Conclusions for the proposed complete model:
+
+
+1.	The set of variables (Loan_Type, Credit_score, Income, Degree, Gender, Signers and  Income*GenderMale) are identified as significant explanatory (predictors) of the logit function, i.e. the Pr( loan in good standing) / Pr(loan defaulted).
+
+2. The proposed model has the ability to classify correctly (AUC = 0.8). This value of 80% is considered good according to standards.
+The model does not predict / classify equally well for auto loans and homes. We allow ourselves to segment the data provided (see results in HTML). For home loans it predicts / classifies with an AUC of 0.843 and for car loans the model has an AUC of 0.784.
+We believe that the proposed general model has great advantages, since it allows to classify the two types of loans with a good AUC. Granting the loan in general will depend on the set of critical dating variables that allow to create a predictive model / classification of good quality (AUC = 0.8).
+
+3. Odds ratio.
+  If the event is defined as D = 0 = "loan in good standing" and D = 1 = "Defaulted on loans".
+  The odds that a male defaults is 11% less than the odds of a female defaulting, or the odds that a females defaults is 9.26 (9.26=1/0.108) times the odds that a male defaults. 
+  The odds that a person with High School Degree is 52.8% less than the odds of College or Graduate Degree, or the odds that a person with College or Graduate Degree is 1.89 (1.89=1/0.528) times the odds that a person with High School Degree defaults.
+  The odds that a person with Graduate Degree is 42.4% more than the odds of High School or College Graduate Degree, or the odds that a person with High School or College Degree is 2.36 (2.36=1/0.426) times the odds that a person with Graduate Degree defaults.
+
+4.	The discriminatory ability of the complete model is higher than for the model only of cars, but lower than for the model only of houses, based on the AUC values (0.843, 0.798, 0.785).**
+
